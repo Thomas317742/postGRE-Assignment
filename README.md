@@ -2,19 +2,19 @@
 
 ## 1. PostgreSQL Database
 
-Database used:
+Database used: `bootcamp`
 
-`bootcamp`
+The `students` table was verified before performing the backup and recovery tasks.
 
-A `students` table was verified in the database.
+Initial data:
+
+| id | name   | age |
+| -- | ------ | --: |
+| 1  | Thomas |  25 |
 
 ## 2. Logical Backup Using pg_dump
 
-A custom-format backup was created using `pg_dump`.
-
-Backup file:
-
-`bootcamp_backup.dump`
+A compressed logical backup was created using `pg_dump`.
 
 Command used:
 
@@ -22,75 +22,115 @@ Command used:
 pg_dump -U postgres -d bootcamp -F c -f bootcamp_backup.dump
 ```
 
-## 3. Database Restore Using pg_restore
+The backup was successfully created as `bootcamp_backup.dump`.
 
-A new database named `bootcamp_restore` was created and the backup was restored successfully.
-
-Command used:
+The backup contents were verified using:
 
 ```bash
-pg_restore -U postgres -d bootcamp_restore bootcamp_backup.dump
+pg_restore --list bootcamp_backup.dump
 ```
 
-The `students` table was verified after restoration.
+The output confirmed that the archive contained the `students` table, table data, sequence, and primary key.
 
-## 4. WAL Archiving
+## 3. Point-in-Time Recovery (PITR)
 
-WAL archiving was enabled in PostgreSQL.
+WAL archiving was configured using:
 
-Configuration verified:
+```text
+wal_level = replica
+archive_mode = on
+archive_command = 'copy "%p" "C:/pg_wal_archive/%f"'
+```
+
+A physical base backup was created for the PITR test.
+
+A test record was inserted:
 
 ```sql
-SHOW wal_level;
+INSERT INTO students (name, age) VALUES ('PITR_Test', 30);
 ```
 
-Result:
+The recovery target time was:
 
-`replica`
+```text
+2026-10-05 15:01:36+03
+```
+
+The test record was deleted from the live database after the target time.
+
+The recovery database was started on port `5433` using `recovery.signal` and the configured `restore_command`.
+
+After recovery, the `students` table contained:
+
+| id | name      | age |
+| -- | --------- | --: |
+| 1  | Thomas    |  25 |
+| 2  | PITR_Test |  30 |
+
+This confirmed that Point-in-Time Recovery successfully restored the database to the selected point in time before the deletion.
+
+## 4. Streaming Replication
+
+A dedicated replication user was created:
 
 ```sql
-SHOW archive_mode;
+CREATE ROLE replicator WITH REPLICATION LOGIN PASSWORD 'Replicator123!';
 ```
 
-Result:
+The PostgreSQL host-based authentication configuration was updated to allow the replication user to connect from localhost.
 
-`on`
-
-The archive command was configured to store WAL files in:
-
-`C:\pg_wal_archive`
-
-WAL archiving was successfully verified using `pg_stat_archiver`.
-
-An archived WAL file was created:
-
-`000000010000000000000004`
-
-## 5. Physical Base Backup
-
-A physical base backup was created using `pg_basebackup`.
-
-Command used:
+A standby server was created using:
 
 ```bash
-pg_basebackup -U postgres -D "C:\pg_basebackup" -Fp -Xs -P
+pg_basebackup -U replicator -D "C:\pg_standby" -Fp -Xs -P -R -h 127.0.0.1
 ```
 
-The backup completed successfully at 100%.
+The standby server was started on port `5433`.
 
-The backup contains:
+Replication status was verified with:
 
-* `backup_label`
-* `backup_manifest`
-* `base`
-* `global`
-* `pg_wal`
-* `PG_VERSION`
+```sql
+SELECT pg_is_in_recovery();
+```
 
-The PostgreSQL version in the base backup was verified as:
+The result was:
 
-`18`
+```text
+t
+```
+
+This confirmed that the server on port `5433` was operating as a standby replica.
+
+## 5. Replication Monitoring
+
+Replication was monitored from the primary database using:
+
+```sql
+SELECT application_name, client_addr, state, sync_state
+FROM pg_stat_replication;
+```
+
+The result showed:
+
+```text
+application_name | client_addr | state     | sync_state
+walreceiver      | 127.0.0.1  | streaming | async
+```
+
+The `streaming` state confirmed that the primary server was actively sending WAL data to the standby server.
+
+The `async` synchronization mode confirmed that asynchronous streaming replication was being used.
 
 ## Conclusion
 
-The PostgreSQL backup and recovery procedures were successfully completed and verified, including logical backup, restoration, WAL archiving, and physical base backup.
+The assignment successfully demonstrated PostgreSQL backup and recovery techniques, including:
+
+* Logical backups using `pg_dump`
+* Backup verification using `pg_restore`
+* WAL archiving
+* Point-in-Time Recovery
+* Physical base backups
+* Streaming replication
+* Replication monitoring using `pg_stat_replication`
+
+All five required PostgreSQL backup, recovery, and replication tasks were successfully completed.
